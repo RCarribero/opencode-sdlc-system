@@ -1,3 +1,9 @@
+## [1.0.3] - 2026-07-20
+
+### Fixed
+- BOM: archivos guardados sin BOM para compatibilidad Windows
+- Plugin register: install.js now inserts plugin array inside the JSON object body
+
 ## [1.0.2] — 2026-07-20
 
 ### Fixed

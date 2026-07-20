@@ -130,9 +130,9 @@ async function copyDirectoryAsync(src, dest) {
               `"plugin": [\n        "${p}",`
             );
           } else {
-            content = content.replace(
-              /}\s*$/,
-              `,\n    "plugin": [\n        "${p}"\n    ]\n}`
+content = content.replace(
+              /([\s\S]*)}\s*$/,
+              (match, before) => before + ',\n    "plugin": [\n        "' + p + '"\n    ]\n}'
             );
           }
         }

@@ -1,55 +1,54 @@
 {
-    "name":  "opencode-sdlc-system",
-    "version":  "1.0.2",
-    "description":  "Multi-agent SDLC Orchestration System with Global Hooks for OpenCode Desktop",
-    "main":  "install.js",
-    "bin":  {
-                "opencode-sdlc-system":  "install.js"
-            },
-    "scripts":  {
-                    "start":  "node install.js",
-                    "install-system":  "node install.js",
-                    "postinstall":  "node install.js"
-                },
-    "files":  [
-                  "agents/",
-                  "plugins/",
-                  "install.js",
-                  "README.md",
-                  "LICENSE",
-                  "CHANGELOG.md",
-                  "CONTRIBUTING.md",
-                  "CONFIGURATION.md",
-                  "AI_SETUP_PROMPT.md"
-              ],
-    "keywords":  [
-                     "opencode",
-                     "sdlc",
-                     "orchestrator",
-                     "agents",
-                     "ai",
-                     "cicd",
-                     "development-workflow",
-                     "multi-agent",
-                     "plugins",
-                     "software-development",
-                     "devops"
-                 ],
-    "author":  "OpenCode SDLC Contributors",
-    "license":  "MIT",
-    "repository":  {
-                       "type":  "git",
-                       "url":  "git+https://github.com/RCarribero/opencode-sdlc-system.git"
-                   },
-    "homepage":  "https://github.com/RCarribero/opencode-sdlc-system#readme",
-    "bugs":  {
-                 "url":  "https://github.com/RCarribero/opencode-sdlc-system/issues"
-             },
-    "engines":  {
-                    "node":  "\u003e=14.0.0"
-                },
-    "publishConfig":  {
-                          "access":  "public"
-                      }
+  "name": "opencode-sdlc-system",
+  "version": "1.0.3",
+  "description": "Multi-agent SDLC Orchestration System with Global Hooks for OpenCode Desktop",
+  "main": "install.js",
+  "bin": {
+    "opencode-sdlc-system": "install.js"
+  },
+  "scripts": {
+    "start": "node install.js",
+    "install-system": "node install.js",
+    "postinstall": "node install.js"
+  },
+  "files": [
+    "agents/",
+    "plugins/",
+    "install.js",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "CONFIGURATION.md",
+    "AI_SETUP_PROMPT.md"
+  ],
+  "keywords": [
+    "opencode",
+    "sdlc",
+    "orchestrator",
+    "agents",
+    "ai",
+    "cicd",
+    "development-workflow",
+    "multi-agent",
+    "plugins",
+    "software-development",
+    "devops"
+  ],
+  "author": "OpenCode SDLC Contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RCarribero/opencode-sdlc-system.git"
+  },
+  "homepage": "https://github.com/RCarribero/opencode-sdlc-system#readme",
+  "bugs": {
+    "url": "https://github.com/RCarribero/opencode-sdlc-system/issues"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
 }
-
