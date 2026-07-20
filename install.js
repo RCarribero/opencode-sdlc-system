@@ -122,31 +122,25 @@ async function copyDirectoryAsync(src, dest) {
       }
 
       if (added > 0) {
-        for (const p of pluginsToRegister) {
-          if (content.includes(p)) continue;
-          if (/"plugin"\s*:\s*\[/.test(content)) {
-            content = content.replace(
-              /"plugin"\s*:\s*\[/,
-              `"plugin": [\n        "${p}",`
-            );
-          } else {
-content = content.replace(
-              /([\s\S]*)}\s*$/,
-              (match, before) => before + ',\n    "plugin": [\n        "' + p + '"\n    ]\n}'
-            );
-          }
-        }
-        content = content.replace(/,\n\s*,/g, ',');
+        // Remove existing "plugin" key if present
+        content = content.replace(/,\s*"plugin"\s*:\s*\[[\s\S]*?\]/, "");
+        // Build clean array and append before the final closing brace
+        const pluginLines = pluginsToRegister.map(p => '        "' + p + '"').join(",\n");
+        content = content.replace(
+          /([\s\S]*)}\s*$/,
+          (match, before) => before + ',\n    "plugin": [\n' + pluginLines + '\n    ]\n}'
+        );
+        content = content.replace(/,\s*\]/g, "]");
         fs.writeFileSync(configFile, content);
-        console.log(`✅ Se registraron los plugins en ${path.basename(configFile)} (${added} nuevos).`);
+        console.log("\u2705 Se registraron los plugins en " + path.basename(configFile) + " (" + added + " nuevos).");
       } else {
-        console.log("✅ Los plugins ya estaban registrados.");
+        console.log("\u2705 Los plugins ya estaban registrados.");
       }
     } catch (parseError) {
       console.error(
-        "⚠️ No se pudo inyectar automáticamente en tu opencode.json(c) por un error de formato."
+        "\u26a0\ufe0f No se pudo inyectar autom\u00e1ticamente en tu opencode.json(c) por un error de formato."
       );
-      console.log("Por favor, añade manualmente lo siguiente en tu array 'plugin':");
+      console.log("Por favor, a\u00f1ade manualmente lo siguiente en tu array 'plugin':");
       console.log(JSON.stringify(pluginsToRegister, null, 2));
     }
   } catch (e) {
