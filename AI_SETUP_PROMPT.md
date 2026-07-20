@@ -1,4 +1,4 @@
-﻿# AI Setup Prompt — OpenCode SDLC System
+# AI Setup Prompt — OpenCode SDLC System
 
 ## Instrucciones para el agente configurador
 

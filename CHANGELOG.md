@@ -1,4 +1,9 @@
-﻿## [1.0.1] — 2026-07-20
+## [1.0.2] — 2026-07-20
+
+### Fixed
+- UTF-8 BOM eliminado de todos los archivos para compatibilidad con Windows (el shebang en install.js fallaba en npm install -g)
+- Archivos guardados con UTF-8 sin BOM
+## [1.0.1] — 2026-07-20
 
 ### Added
 - Soporte multiplataforma en install.js: detección de Windows/macOS/Linux con rutas específicas

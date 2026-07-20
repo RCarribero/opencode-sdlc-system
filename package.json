@@ -1,6 +1,6 @@
-﻿{
+{
     "name":  "opencode-sdlc-system",
-    "version":  "1.0.1",
+    "version":  "1.0.2",
     "description":  "Multi-agent SDLC Orchestration System with Global Hooks for OpenCode Desktop",
     "main":  "install.js",
     "bin":  {
@@ -52,3 +52,4 @@
                           "access":  "public"
                       }
 }
+

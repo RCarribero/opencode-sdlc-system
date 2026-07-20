@@ -1,4 +1,4 @@
-﻿# Guía de Configuración — OpenCode SDLC System
+# Guía de Configuración — OpenCode SDLC System
 
 Esta guía explica cómo configurar y personalizar el sistema SDLC multi-agente para tu proyecto.
 
