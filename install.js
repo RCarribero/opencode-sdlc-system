@@ -109,7 +109,7 @@ async function copyDirectoryAsync(src, dest) {
     let content = fs.readFileSync(configFile, 'utf8');
 
     try {
-      const stripped = content.replace(/\/\/.*|\/\*[\s\S]*?\*\//g, '');
+      const stripped = content.replace(/("(?:[^"\\]|\\.)*")|\/\/.*|\/\*[\s\S]*?\*\//g, (m, s) => s || "");
       const configObj = JSON.parse(stripped);
       if (!Array.isArray(configObj.plugin)) configObj.plugin = [];
 
@@ -136,7 +136,7 @@ content = content.replace(
             );
           }
         }
-        content = content.replace(/,\s*,/g, ',');
+        content = content.replace(/,\n\s*,/g, ',');
         fs.writeFileSync(configFile, content);
         console.log(`✅ Se registraron los plugins en ${path.basename(configFile)} (${added} nuevos).`);
       } else {

@@ -1,3 +1,9 @@
+## [1.0.4] - 2026-07-20
+
+### Fixed
+- Comment-stripping regex now uses capture group to preserve JSON strings (fixes injection into opencode.jsonc files with URLs)
+- Duplicate comma cleanup now handles newline-separated duplicates
+
 ## [1.0.3] - 2026-07-20
 
 ### Fixed
