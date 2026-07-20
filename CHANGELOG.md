@@ -1,3 +1,8 @@
+## [1.0.5] - 2026-07-20
+
+### Fixed
+- Plugin injection now preserves existing custom plugins instead of replacing the entire array
+
 ## [1.0.4] - 2026-07-20
 
 ### Fixed

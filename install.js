@@ -125,7 +125,7 @@ async function copyDirectoryAsync(src, dest) {
         // Remove existing "plugin" key if present
         content = content.replace(/,\s*"plugin"\s*:\s*\[[\s\S]*?\]/, "");
         // Build clean array and append before the final closing brace
-        const pluginLines = pluginsToRegister.map(p => '        "' + p + '"').join(",\n");
+        const pluginLines = configObj.plugin.map(p => '        "' + p + '"').join(",\n");
         content = content.replace(
           /([\s\S]*)}\s*$/,
           (match, before) => before + ',\n    "plugin": [\n' + pluginLines + '\n    ]\n}'
