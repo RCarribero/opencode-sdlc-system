@@ -1,3 +1,8 @@
+## [1.0.6] - 2026-07-20
+
+### Fixed
+- Comma placement: trimEnd before injection so comma stays on same line as closing brace
+
 ## [1.0.5] - 2026-07-20
 
 ### Fixed

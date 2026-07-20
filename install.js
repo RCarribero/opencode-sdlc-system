@@ -128,7 +128,7 @@ async function copyDirectoryAsync(src, dest) {
         const pluginLines = configObj.plugin.map(p => '        "' + p + '"').join(",\n");
         content = content.replace(
           /([\s\S]*)}\s*$/,
-          (match, before) => before + ',\n    "plugin": [\n' + pluginLines + '\n    ]\n}'
+          (match, before) => before.trimEnd() + ',\n    "plugin": [\n' + pluginLines + '\n    ]\n}'
         );
         content = content.replace(/,\s*\]/g, "]");
         fs.writeFileSync(configFile, content);
