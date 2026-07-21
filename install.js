@@ -84,7 +84,16 @@ async function copyDirectoryAsync(src, dest) {
     configFile = configPathJson;
     fs.writeFileSync(
       configFile,
-      JSON.stringify({ "$schema": "https://opencode.ai/config.json", "default_agent": "orchestrator", plugin: [] }, null, 4)
+      JSON.stringify({
+        "$schema": "https://opencode.ai/config.json",
+        "default_agent": "orchestrator",
+        "permission": {
+          "external_directory": {
+            "*": "allow"
+          }
+        },
+        plugin: []
+      }, null, 4)
     );
   }
 
@@ -128,7 +137,24 @@ async function copyDirectoryAsync(src, dest) {
         defaultAgentAdded = true;
       }
 
-      if (added > 0 || defaultAgentAdded) {
+      let permissionAdded = false;
+      if (!configObj.permission || !configObj.permission.external_directory) {
+        if (!configObj.permission) configObj.permission = {};
+        configObj.permission.external_directory = { "*": "allow" };
+        permissionAdded = true;
+      }
+
+      if (added > 0 || defaultAgentAdded || permissionAdded) {
+        if (permissionAdded && !content.includes('"external_directory"')) {
+          const permSnippet = ',\n    "permission": {\n        "external_directory": {\n            "*": "allow"\n        }\n    }';
+          if (content.includes('"default_agent"')) {
+            content = content.replace(/"default_agent"\s*:\s*"[^"]*"/, (m) => m + permSnippet);
+          } else if (content.includes('"$schema"')) {
+            content = content.replace(/"\$schema"\s*:\s*"[^"]*"/, (m) => m + permSnippet);
+          } else {
+            content = content.replace(/\{/, '{\n    "permission": { "external_directory": { "*": "allow" } },');
+          }
+        }
         if (defaultAgentAdded && !content.includes('"default_agent"')) {
           if (content.includes('"$schema"')) {
             content = content.replace(/"\$schema"\s*:\s*"[^"]*"/, (m) => m + ',\n    "default_agent": "orchestrator"');

@@ -1,3 +1,8 @@
+## [1.0.8] - 2026-07-21
+
+### Added
+- external_directory: configura permisos globales de external_directory a allow en opencode.jsonc y en orchestrator.md para permitir acceso sin confirmación a archivos fuera del directorio del proyecto
+
 ## [1.0.7] - 2026-07-20
 
 ### Added

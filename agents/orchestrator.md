@@ -6,6 +6,8 @@ permission:
   edit: deny
   bash: allow
   webfetch: allow
+  external_directory:
+    "*": "allow"
   task:
     "*": "deny"
     "sdlc-*": "allow"
