@@ -84,13 +84,14 @@ async function copyDirectoryAsync(src, dest) {
     configFile = configPathJson;
     fs.writeFileSync(
       configFile,
-      JSON.stringify({ "$schema": "https://opencode.ai/config.json", plugin: [] }, null, 4)
+      JSON.stringify({ "$schema": "https://opencode.ai/config.json", "default_agent": "orchestrator", plugin: [] }, null, 4)
     );
   }
 
   const pluginFiles = [
     'InitPlugin.ts',
     'ContextLoaderPlugin.ts',
+    'AutoDiscoveryPlugin.ts',
     'StateTrackerPlugin.ts',
     'ActionValidatorPlugin.ts',
     'CleanupPlugin.ts',
@@ -106,7 +107,7 @@ async function copyDirectoryAsync(src, dest) {
   }
 
   try {
-    let content = fs.readFileSync(configFile, 'utf8');
+    let content = fs.readFileSync(configFile, 'utf8').replace(/^\uFEFF/, '');
 
     try {
       const stripped = content.replace(/("(?:[^"\\]|\\.)*")|\/\/.*|\/\*[\s\S]*?\*\//g, (m, s) => s || "");
@@ -121,7 +122,21 @@ async function copyDirectoryAsync(src, dest) {
         }
       }
 
-      if (added > 0) {
+      let defaultAgentAdded = false;
+      if (!configObj.default_agent) {
+        configObj.default_agent = "orchestrator";
+        defaultAgentAdded = true;
+      }
+
+      if (added > 0 || defaultAgentAdded) {
+        if (defaultAgentAdded && !content.includes('"default_agent"')) {
+          if (content.includes('"$schema"')) {
+            content = content.replace(/"\$schema"\s*:\s*"[^"]*"/, (m) => m + ',\n    "default_agent": "orchestrator"');
+          } else {
+            content = content.replace(/\{/, '{\n    "default_agent": "orchestrator",');
+          }
+        }
+
         // Remove existing "plugin" key if present
         content = content.replace(/,\s*"plugin"\s*:\s*\[[\s\S]*?\]/, "");
         // Build clean array and append before the final closing brace
@@ -132,9 +147,9 @@ async function copyDirectoryAsync(src, dest) {
         );
         content = content.replace(/,\s*\]/g, "]");
         fs.writeFileSync(configFile, content);
-        console.log("\u2705 Se registraron los plugins en " + path.basename(configFile) + " (" + added + " nuevos).");
+        console.log("\u2705 Se registraron los plugins y agente por defecto en " + path.basename(configFile) + ".");
       } else {
-        console.log("\u2705 Los plugins ya estaban registrados.");
+        console.log("\u2705 La configuración de OpenCode ya está actualizada.");
       }
     } catch (parseError) {
       console.error(

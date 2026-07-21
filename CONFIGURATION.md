@@ -38,6 +38,7 @@ Archivo principal de configuración de OpenCode. El instalador registra automát
 
 ```json
 {
+  "default_agent": "orchestrator",
   "plugin": [
     "./plugins/InitPlugin.ts",
     "./plugins/ContextLoaderPlugin.ts",

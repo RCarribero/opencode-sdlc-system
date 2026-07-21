@@ -107,6 +107,7 @@ Se ejecutan en segundo plano en cada sesión de OpenCode sin intervención del u
 | 🛡️ **ActionValidatorPlugin** | Bloquea comandos destructivos (`rm -rf`, `format`, `shutdown`, etc.) en tiempo real y registra cada intento en `agents/security.log` |
 | 🧹 **CleanupPlugin** | Limpia automáticamente los scripts temporales de `agents/workflow/` al iniciar cada sesión, moviéndolos a una carpeta `trash` |
 | 🧠 **ContextLoaderPlugin** | Detecta automáticamente tu stack técnico (Node.js, Python, Rust, etc.) y frameworks, escribe `agents/context.json` y lo inyecta en el system prompt de los agentes |
+| 🤖 **AutoDiscoveryPlugin** | Escanea el proyecto al iniciar la sesión, instala `find-skills` de Vercel, autoconfigura MCP servers (Stripe, Supabase, GitHub, etc.) según las dependencias detectadas, e inyecta una instrucción dinámica al orquestador para que descubra skills relevantes |
 | 💾 **StateTrackerPlugin** | Persiste el historial de archivos modificados y el plan a medio terminar en `agents/state.json` y `agents/plan.json`, permitiendo retomar sesiones interrumpidas |
 | 🚀 **InitPlugin** | Inicializa proyectos vacíos creando un `README.md` básico si el workspace no contiene archivos visibles |
 

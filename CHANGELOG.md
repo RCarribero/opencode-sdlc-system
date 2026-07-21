@@ -1,3 +1,15 @@
+## [1.0.7] - 2026-07-20
+
+### Added
+- AutoDiscoveryPlugin: escanea package.json/Cargo.toml/go.mod/py al iniciar sesión, autoconfigura MCP servers (Stripe, Supabase, GitHub, Sentry, Vercel, AWS, Jira, PostgreSQL) e inyecta instrucción dinámica al orquestador para que use find-skills y descubra skills relevantes autónomamente
+
+### Changed
+- install.js: registra AutoDiscoveryPlugin en el array de plugins
+- README: añadida entrada del AutoDiscoveryPlugin en la tabla de plugins
+
+### Fixed
+- Sin execSync: el plugin ya no ejecuta npm/npx directamente (poco fiable en hooks), delega la instalación al agente vía system prompt
+
 ## [1.0.6] - 2026-07-20
 
 ### Fixed
