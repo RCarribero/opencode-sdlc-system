@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { execSync } from 'child_process';
 
 // Import local plugin modules and helpers
 import InitPlugin, { isUninitializedProject, initializeExistingProjectFiles } from '../plugins/InitPlugin.ts';
@@ -36,6 +37,19 @@ test('InitPlugin - isUninitializedProject on empty folder', async () => {
   try {
     const isUninit = isUninitializedProject(testDir);
     assert.equal(isUninit, true, 'Empty folder must be identified as uninitialized');
+  } finally {
+    removeTestDir(testDir);
+  }
+});
+
+test('InitPlugin - isUninitializedProject on folder with dotfiles only (.git, .vscode)', async () => {
+  const testDir = createTestDir('dotfiles');
+  try {
+    fs.mkdirSync(path.join(testDir, '.git'), { recursive: true });
+    fs.mkdirSync(path.join(testDir, '.vscode'), { recursive: true });
+
+    const isUninit = isUninitializedProject(testDir);
+    assert.equal(isUninit, true, 'Folder with dotfiles only must be identified as uninitialized');
   } finally {
     removeTestDir(testDir);
   }
@@ -125,6 +139,20 @@ test('ContextLoaderPlugin - updateProjectContext detects languages & key depende
   }
 });
 
+test('ContextLoaderPlugin - handles corrupted package.json gracefully without crashing', async () => {
+  const testDir = createTestDir('corrupted_pkg');
+  try {
+    fs.writeFileSync(path.join(testDir, 'package.json'), '{ invalid json content... ');
+
+    const ctxData = updateProjectContext(testDir);
+    assert.notEqual(ctxData, null);
+    assert.deepEqual(ctxData.stack.languages, []);
+    assert.deepEqual(ctxData.keyDependencies, []);
+  } finally {
+    removeTestDir(testDir);
+  }
+});
+
 test('ContextLoaderPlugin - system.transform injects workspace context', async () => {
   const testDir = createTestDir('context_sys');
   try {
@@ -146,7 +174,7 @@ test('ContextLoaderPlugin - system.transform injects workspace context', async (
 // ============================================================================
 // TEST GROUP 3: AutoDiscoveryPlugin
 // ============================================================================
-test('AutoDiscoveryPlugin - scans deps, configures MCP and writes auto-discovery.json', async () => {
+test('AutoDiscoveryPlugin - scans Node deps, configures MCP and writes auto-discovery.json', async () => {
   const testDir = createTestDir('auto_disc');
   try {
     fs.writeFileSync(path.join(testDir, 'package.json'), JSON.stringify({
@@ -175,6 +203,45 @@ test('AutoDiscoveryPlugin - scans deps, configures MCP and writes auto-discovery
     assert.equal(opencodeConfig.mcp.stripe.type, 'local');
     assert.equal(Array.isArray(opencodeConfig.mcp.stripe.command), true);
     assert.equal(opencodeConfig.mcp.stripe.enabled, true);
+  } finally {
+    removeTestDir(testDir);
+  }
+});
+
+test('AutoDiscoveryPlugin - scans Rust Cargo.toml, Go go.mod and Python requirements.txt', async () => {
+  const testDir = createTestDir('multi_manifest');
+  try {
+    fs.writeFileSync(path.join(testDir, 'Cargo.toml'), `
+[package]
+name = "rust_test"
+version = "0.1.0"
+[dependencies]
+serde = "1.0"
+tokio = "1.0"
+`);
+
+    fs.writeFileSync(path.join(testDir, 'go.mod'), `
+module example.com/test
+go 1.20
+require (
+  github.com/gin-gonic/gin v1.9.0
+)
+`);
+
+    fs.writeFileSync(path.join(testDir, 'requirements.txt'), `
+flask==2.3.0
+requests>=2.28.0
+# comment
+-e .
+`);
+
+    const serverInstance = await AutoDiscoveryPlugin.server({ directory: testDir });
+    await serverInstance['experimental.chat.messages.transform']({}, {});
+
+    const resultPath = path.join(testDir, '.agents', 'auto-discovery.json');
+    assert.equal(fs.existsSync(resultPath), true);
+    const autoDisc = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+    assert.equal(autoDisc.dependenciesFound >= 4, true, 'Must detect Rust, Go and Python dependencies');
   } finally {
     removeTestDir(testDir);
   }
@@ -225,6 +292,27 @@ test('StateTrackerPlugin - tracks file modifications and ignores .agents files',
   }
 });
 
+test('StateTrackerPlugin - caps modification history at 30 items', async () => {
+  const testDir = createTestDir('state_cap');
+  try {
+    const serverInstance = await StateTrackerPlugin.server({ directory: testDir });
+
+    for (let i = 1; i <= 35; i++) {
+      await serverInstance['tool.execute.after']({
+        tool: 'write_to_file',
+        args: { TargetFile: path.join(testDir, 'src', `file_${i}.ts`) }
+      }, {});
+    }
+
+    const statePath = path.join(testDir, '.agents', 'state.json');
+    const stateObj = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    assert.equal(stateObj.modifications.length, 30, 'Modifications history must be capped at 30');
+    assert.equal(stateObj.modifications[0].file.replace(/\\/g, '/'), 'src/file_6.ts');
+  } finally {
+    removeTestDir(testDir);
+  }
+});
+
 // ============================================================================
 // TEST GROUP 5: ActionValidatorPlugin
 // ============================================================================
@@ -233,11 +321,19 @@ test('ActionValidatorPlugin - allows safe commands and blocks destructive system
   try {
     const serverInstance = await ActionValidatorPlugin.server({ directory: testDir });
 
-    // Safe command
+    // Safe command 1
     await assert.doesNotReject(async () => {
       await serverInstance['tool.execute.before']({
         tool: 'run_command',
         args: { CommandLine: 'git commit -m "fix: remove item from array"' }
+      }, {});
+    });
+
+    // Safe command 2 with /s in text
+    await assert.doesNotReject(async () => {
+      await serverInstance['tool.execute.before']({
+        tool: 'run_command',
+        args: { CommandLine: 'npm run test -- /s' }
       }, {});
     });
 
@@ -254,6 +350,14 @@ test('ActionValidatorPlugin - allows safe commands and blocks destructive system
       await serverInstance['tool.execute.before']({
         tool: 'run_command',
         args: { CommandLine: 'rd /s /q C:\\' }
+      }, {});
+    }, /Acción bloqueada por seguridad/);
+
+    // Destructive command 3: Windows rmdir \s \q C:\Windows
+    await assert.rejects(async () => {
+      await serverInstance['tool.execute.before']({
+        tool: 'run_command',
+        args: { CommandLine: 'rmdir \\s \\q C:\\Windows' }
       }, {});
     }, /Acción bloqueada por seguridad/);
 
@@ -287,5 +391,35 @@ test('CleanupPlugin - moves temp test files to trash without touching source cod
     assert.equal(fs.existsSync(trashFilePath), true, 'test.js MUST exist in trash directory');
   } finally {
     removeTestDir(testDir);
+  }
+});
+
+// ============================================================================
+// TEST GROUP 7: Installer (install.js) Schema & Config Validation
+// ============================================================================
+test('Installer (install.js) - generates valid opencode.jsonc with slash commands & hidden subagents', async () => {
+  const testConfigDir = createTestDir('install_cfg');
+  try {
+    const baseDir = import.meta.dirname || path.dirname(new URL(import.meta.url).pathname);
+    const installScriptPath = path.resolve(baseDir, '..', 'install.js');
+    
+    // Execute install.js with custom OPENCODE_CONFIG_DIR
+    execSync(`node "${installScriptPath}"`, {
+      env: { ...process.env, OPENCODE_CONFIG_DIR: testConfigDir },
+      encoding: 'utf8'
+    });
+
+    const configPath = path.join(testConfigDir, 'opencode.jsonc');
+    assert.equal(fs.existsSync(configPath), true, 'opencode.jsonc must be generated');
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    assert.equal(config.default_agent, 'orchestrator');
+    assert.equal(config.command.sdlc.agent, 'orchestrator');
+    assert.equal(config.command.plan.agent, 'orchestrator');
+    assert.equal(config.agent['sdlc-planner'].hidden, true);
+    assert.equal(config.agent['sdlc-planner'].mode, 'subagent');
+    assert.equal(config.compaction.auto, true);
+  } finally {
+    removeTestDir(testConfigDir);
   }
 });

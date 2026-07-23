@@ -71,6 +71,10 @@ export default {
               timestamp: new Date().toISOString()
             });
 
+            if (currentState.modifications.length > 30) {
+              currentState.modifications = currentState.modifications.slice(-30);
+            }
+
             if (!fs.existsSync(agentsDir)) {
               fs.mkdirSync(agentsDir, { recursive: true });
             }

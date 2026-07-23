@@ -182,23 +182,31 @@ async function copyDirectoryAsync(src, dest) {
       configObj.command["plan"] = {
         template: "Analiza y genera un plan estructurado para: {{input}}",
         description: "Planificar cambios con el agente @sdlc-planner",
-        agent: "sdlc-planner"
+        agent: "orchestrator"
       };
       configObj.command["review"] = {
         template: "Revisa las diferencias de código y seguridad en git",
         description: "Revisión de código con @sdlc-reviewer",
-        agent: "sdlc-reviewer"
+        agent: "orchestrator"
       };
       configObj.command["test"] = {
         template: "Ejecuta y verifica las pruebas de la aplicación",
         description: "Diagnóstico y ejecución de tests con @sdlc-tester",
-        agent: "sdlc-tester"
+        agent: "orchestrator"
       };
       configObj.command["docs"] = {
         template: "Genera y actualiza la documentación del proyecto",
         description: "Actualizar documentación con @sdlc-documenter",
-        agent: "sdlc-documenter"
+        agent: "orchestrator"
       };
+
+      if (!configObj.agent) configObj.agent = {};
+      const subagentKeys = ['sdlc-planner', 'sdlc-explorer', 'sdlc-implementer', 'sdlc-reviewer', 'sdlc-tester', 'sdlc-documenter'];
+      for (const k of subagentKeys) {
+        if (!configObj.agent[k]) configObj.agent[k] = {};
+        configObj.agent[k].hidden = true;
+        configObj.agent[k].mode = 'subagent';
+      }
 
       if (!configObj.compaction) {
         configObj.compaction = {
