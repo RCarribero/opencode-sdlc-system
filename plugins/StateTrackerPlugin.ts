@@ -71,7 +71,9 @@ export default {
               timestamp: new Date().toISOString()
             });
 
-            if (currentState.modifications.length > 30) currentState.modifications.shift();
+            if (!fs.existsSync(agentsDir)) {
+              fs.mkdirSync(agentsDir, { recursive: true });
+            }
 
             fs.writeFileSync(statePath, JSON.stringify(currentState, null, 2));
           }
