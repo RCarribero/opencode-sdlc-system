@@ -4,10 +4,12 @@ import * as path from 'path';
 export default {
   id: "CleanupPlugin",
   async server(ctx: any) {
+    const serverProjectDir = ctx.directory || ctx.project?.directory;
+
     return {
       async event({ event }: any) {
         if (event.type === "session.created") {
-          const projectDir = event.properties?.info?.directory;
+          const projectDir = serverProjectDir || event.properties?.info?.directory;
           if (!projectDir) return;
 
           // Evitar la raíz del sistema
@@ -47,13 +49,11 @@ export default {
                 const ext = path.extname(file);
 
                 if (filePath !== TRASH_DIR && fs.statSync(filePath).isFile() && TEMP_EXTENSIONS.includes(ext)) {
-                  // Si estamos en la raíz, solo mover si coincide con patrones de prueba (evitando borrar app.js)
                   if (onlyMatchTempPatterns) {
                     if (isTemporaryFileName(file)) {
                       moveFileToTrash(filePath, file);
                     }
                   } else {
-                    // Si estamos en la carpeta de workflow del agente, mover todo
                     moveFileToTrash(filePath, file);
                   }
                 }
@@ -63,10 +63,7 @@ export default {
             }
           };
 
-          // 1. En la carpeta temporal del agente (workflow), limpiamos TODOS los archivos .js y .py
           processTempFiles(WORKFLOW_DIR, false);
-
-          // 2. En la raíz del proyecto, SOLO limpiamos archivos que coincidan con patrones de prueba/temporales (ej: test.js, tmp.py, etc.)
           processTempFiles(projectDir, true);
         }
       }

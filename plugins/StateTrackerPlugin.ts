@@ -39,17 +39,21 @@ export default {
         const planPath = path.join(agentsDir, 'plan.json');
 
         try {
+          const toolName = input.tool || input.name || input.toolName;
+
           // --- Rastreo de modificaciones de archivos ---
           const fileTools = ["write_to_file", "replace_file_content", "multi_replace_file_content", "write", "edit"];
-          if (fileTools.includes(input.tool)) {
+          if (fileTools.includes(toolName)) {
             const args = { ...input.args, ...output?.args, ...output };
             const filePath = args.filePath || args.TargetFile || args.path || args.targetFile || args.filename || args.file;
 
             if (!filePath) return;
 
             const relativePath = path.isAbsolute(filePath) ? path.relative(projectDir, filePath) : filePath;
+            const normalizedPath = relativePath.replace(/\\/g, '/');
 
-            if (relativePath.includes('.agents/') || relativePath.includes('state.json') || relativePath.includes('opencode_plugin_runs.log')) {
+            // Excluir archivos internos de la carpeta .agents y logs
+            if (normalizedPath.includes('.agents/') || normalizedPath.includes('state.json') || normalizedPath.includes('opencode_plugin_runs.log')) {
               return;
             }
 
@@ -63,7 +67,7 @@ export default {
             if (!Array.isArray(currentState.modifications)) currentState.modifications = [];
 
             currentState.modifications.push({
-              file: relativePath,
+              file: normalizedPath,
               timestamp: new Date().toISOString()
             });
 
@@ -72,8 +76,8 @@ export default {
             fs.writeFileSync(statePath, JSON.stringify(currentState, null, 2));
           }
 
-          // --- Mejora 3: Persistencia del plan (interceptar todowrite) ---
-          if (input.tool === "todowrite") {
+          // --- Persistencia del plan (interceptar todowrite) ---
+          if (toolName === "todowrite") {
             const args = { ...input.args, ...output?.args, ...output };
             const todos = args.todos || args.items || args.content;
 
@@ -90,14 +94,12 @@ export default {
 
               currentPlan.lastUpdated = new Date().toISOString();
 
-              // Si viene como array, registrar cada item
               if (Array.isArray(todos)) {
                 currentPlan.phases = todos.map((t: any) => ({
                   title: t.title || t.content || t.text || String(t),
                   status: t.status || 'pending'
                 }));
               } else if (typeof todos === 'string') {
-                // Si es un string (contenido del todo), actualizar como bloque
                 currentPlan.rawContent = todos;
               }
 

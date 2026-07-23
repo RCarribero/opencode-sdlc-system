@@ -18,8 +18,25 @@ const ESSENTIAL_MANIFEST_FILES = [
 ];
 
 /**
+ * Patrones de directorios/archivos fuente que indican un proyecto con código activo.
+ */
+const SOURCE_CODE_INDICATORS = [
+  'src',
+  'lib',
+  'app',
+  'index.ts',
+  'index.js',
+  'main.go',
+  'main.rs',
+  'main.py',
+  'app.py',
+  'server.js',
+  'server.ts'
+];
+
+/**
  * 1. Función modular de verificación:
- * Comprueba si el directorio del proyecto está vacío o si carece de manifiestos esenciales.
+ * Comprueba si el directorio del proyecto está vacío o si carece de manifiestos/código esencial.
  */
 export function isUninitializedProject(projectDir: string): boolean {
   if (!projectDir || !fs.existsSync(projectDir)) return true;
@@ -30,7 +47,7 @@ export function isUninitializedProject(projectDir: string): boolean {
     // Filtrar archivos y carpetas ocultos (ej. .git, .agents, .vscode)
     const visibleEntries = entries.filter(name => !name.startsWith('.'));
     
-    // Si no hay archivos ni carpetas visibles, la carpeta está vacía
+    // Si no hay archivos ni carpetas visibles, la carpeta está totalmente vacía
     if (visibleEntries.length === 0) {
       return true;
     }
@@ -40,8 +57,17 @@ export function isUninitializedProject(projectDir: string): boolean {
       fs.existsSync(path.join(projectDir, manifest))
     );
 
-    // Si hay muy pocos archivos y ninguno es un manifiesto esencial, se considera no inicializado
-    return !hasEssentialManifest && visibleEntries.length <= 2;
+    if (hasEssentialManifest) return false;
+
+    // Comprobar si existen indicadores de código fuente existente
+    const hasSourceCode = SOURCE_CODE_INDICATORS.some(indicator =>
+      fs.existsSync(path.join(projectDir, indicator))
+    );
+
+    if (hasSourceCode) return false;
+
+    // Si tiene pocos archivos y ninguno es manifiesto ni código fuente, se considera no inicializado
+    return visibleEntries.length <= 2;
   } catch (e) {
     console.error('[InitPlugin] Error comprobando estado del proyecto:', e);
     return true;
@@ -88,7 +114,6 @@ export default {
         }
 
         if (isUninitialized) {
-          // CASO A: Proyecto Vacío / Sin Inicializar
           try {
             fs.writeFileSync(statusPath, JSON.stringify({
               status: "pending_interactive_setup",
@@ -99,7 +124,6 @@ export default {
             console.error('[InitPlugin] Error registrando init-status:', e);
           }
         } else {
-          // CASO B: Proyecto Inicializado (se creó package.json o similar)
           initializeExistingProjectFiles(projectDir);
           try {
             fs.writeFileSync(statusPath, JSON.stringify({
@@ -114,7 +138,7 @@ export default {
       },
 
       /**
-       * Transformación del System Prompt: Inyecta instrucción interactiva si la carpeta no tiene manifiesto
+       * Transformación del System Prompt: Inyecta instrucción interactiva si la carpeta no tiene manifiesto ni código
        */
       async ["experimental.chat.system.transform"](input: any, output: any) {
         if (!projectDir || projectDir === 'C:\\' || projectDir === 'C:/' || projectDir === '/') return;
@@ -124,7 +148,7 @@ export default {
         if (isUninitialized) {
           const initInstruction = `
 [SYSTEM NOTIFICATION - UNINITIALIZED EMPTY PROJECT DETECTED]
-⚠️ Este espacio de trabajo está VACÍO o no tiene un manifiesto de proyecto esencial (package.json, Cargo.toml, etc.).
+⚠️ Este espacio de trabajo está VACÍO o no tiene un manifiesto de proyecto ni estructura de código (package.json, Cargo.toml, src/, etc.).
 
 INSTRUCCIÓN DE INICIALIZACIÓN INTERACTIVA OBLIGATORIA PARA EL AGENTE:
 1. NO asumas la pila tecnológica ni generes estructura a ciegas.

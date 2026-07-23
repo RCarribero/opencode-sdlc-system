@@ -66,22 +66,20 @@ async function copyDirectoryAsync(src, dest) {
     process.exit(1);
   }
 
-  console.log("⚙️ Registrando plugins en la configuración de OpenCode...");
+  console.log("⚙️ Registrando plugins, comandos slash y configuraciones en OpenCode...");
 
   const configPathJsonc = path.join(configPath, 'opencode.jsonc');
   const configPathJson = path.join(configPath, 'opencode.json');
   let configFile = null;
-  let isJsonc = false;
 
   if (fs.existsSync(configPathJsonc)) {
     configFile = configPathJsonc;
-    isJsonc = true;
   } else if (fs.existsSync(configPathJson)) {
     configFile = configPathJson;
   } else {
     console.log("⚠️ No se encontró opencode.json ni opencode.jsonc.");
-    console.log("Creando un opencode.json básico...");
-    configFile = configPathJson;
+    console.log("Creando opencode.jsonc por defecto...");
+    configFile = configPathJsonc;
     fs.writeFileSync(
       configFile,
       JSON.stringify({
@@ -92,7 +90,39 @@ async function copyDirectoryAsync(src, dest) {
             "*": "allow"
           }
         },
-        plugin: []
+        "command": {
+          "sdlc": {
+            "template": "Inicia el flujo completo SDLC para: {{input}}",
+            "description": "Ejecutar flujo multi-agente SDLC completo",
+            "agent": "orchestrator"
+          },
+          "plan": {
+            "template": "Analiza y genera un plan estructurado para: {{input}}",
+            "description": "Planificar cambios con el agente @sdlc-planner",
+            "agent": "sdlc-planner"
+          },
+          "review": {
+            "template": "Revisa las diferencias de código y seguridad en git",
+            "description": "Revisión de código con @sdlc-reviewer",
+            "agent": "sdlc-reviewer"
+          },
+          "test": {
+            "template": "Ejecuta y verifica las pruebas de la aplicación",
+            "description": "Diagnóstico y ejecución de tests con @sdlc-tester",
+            "agent": "sdlc-tester"
+          },
+          "docs": {
+            "template": "Genera y actualiza la documentación del proyecto",
+            "description": "Actualizar documentación con @sdlc-documenter",
+            "agent": "sdlc-documenter"
+          }
+        },
+        "compaction": {
+          "auto": true,
+          "prune": false,
+          "tail_turns": 2
+        },
+        "plugin": []
       }, null, 4)
     );
   }
@@ -121,67 +151,63 @@ async function copyDirectoryAsync(src, dest) {
     try {
       const stripped = content.replace(/("(?:[^"\\]|\\.)*")|\/\/.*|\/\*[\s\S]*?\*\//g, (m, s) => s || "");
       const configObj = JSON.parse(stripped);
-      if (!Array.isArray(configObj.plugin)) configObj.plugin = [];
 
-      let added = 0;
+      if (!Array.isArray(configObj.plugin)) configObj.plugin = [];
       for (const p of pluginsToRegister) {
         if (!configObj.plugin.includes(p)) {
           configObj.plugin.push(p);
-          added++;
         }
       }
 
-      let defaultAgentAdded = false;
-      if (!configObj.default_agent) {
-        configObj.default_agent = "orchestrator";
-        defaultAgentAdded = true;
-      }
+      configObj.default_agent = "orchestrator";
 
-      let permissionAdded = false;
-      if (!configObj.permission || !configObj.permission.external_directory) {
-        if (!configObj.permission) configObj.permission = {};
+      if (!configObj.permission) configObj.permission = {};
+      if (!configObj.permission.external_directory) {
         configObj.permission.external_directory = { "*": "allow" };
-        permissionAdded = true;
       }
 
-      if (added > 0 || defaultAgentAdded || permissionAdded) {
-        if (permissionAdded && !content.includes('"external_directory"')) {
-          const permSnippet = ',\n    "permission": {\n        "external_directory": {\n            "*": "allow"\n        }\n    }';
-          if (content.includes('"default_agent"')) {
-            content = content.replace(/"default_agent"\s*:\s*"[^"]*"/, (m) => m + permSnippet);
-          } else if (content.includes('"$schema"')) {
-            content = content.replace(/"\$schema"\s*:\s*"[^"]*"/, (m) => m + permSnippet);
-          } else {
-            content = content.replace(/\{/, '{\n    "permission": { "external_directory": { "*": "allow" } },');
-          }
-        }
-        if (defaultAgentAdded && !content.includes('"default_agent"')) {
-          if (content.includes('"$schema"')) {
-            content = content.replace(/"\$schema"\s*:\s*"[^"]*"/, (m) => m + ',\n    "default_agent": "orchestrator"');
-          } else {
-            content = content.replace(/\{/, '{\n    "default_agent": "orchestrator",');
-          }
-        }
+      if (!configObj.command) configObj.command = {};
+      configObj.command["sdlc"] = {
+        template: "Inicia el flujo completo SDLC para: {{input}}",
+        description: "Ejecutar flujo multi-agente SDLC completo",
+        agent: "orchestrator"
+      };
+      configObj.command["plan"] = {
+        template: "Analiza y genera un plan estructurado para: {{input}}",
+        description: "Planificar cambios con el agente @sdlc-planner",
+        agent: "sdlc-planner"
+      };
+      configObj.command["review"] = {
+        template: "Revisa las diferencias de código y seguridad en git",
+        description: "Revisión de código con @sdlc-reviewer",
+        agent: "sdlc-reviewer"
+      };
+      configObj.command["test"] = {
+        template: "Ejecuta y verifica las pruebas de la aplicación",
+        description: "Diagnóstico y ejecución de tests con @sdlc-tester",
+        agent: "sdlc-tester"
+      };
+      configObj.command["docs"] = {
+        template: "Genera y actualiza la documentación del proyecto",
+        description: "Actualizar documentación con @sdlc-documenter",
+        agent: "sdlc-documenter"
+      };
 
-        // Remove existing "plugin" key if present
-        content = content.replace(/,\s*"plugin"\s*:\s*\[[\s\S]*?\]/, "");
-        // Build clean array and append before the final closing brace
-        const pluginLines = configObj.plugin.map(p => '        "' + p + '"').join(",\n");
-        content = content.replace(
-          /([\s\S]*)}\s*$/,
-          (match, before) => before.trimEnd() + ',\n    "plugin": [\n' + pluginLines + '\n    ]\n}'
-        );
-        content = content.replace(/,\s*\]/g, "]");
-        fs.writeFileSync(configFile, content);
-        console.log("\u2705 Se registraron los plugins y agente por defecto en " + path.basename(configFile) + ".");
-      } else {
-        console.log("\u2705 La configuración de OpenCode ya está actualizada.");
+      if (!configObj.compaction) {
+        configObj.compaction = {
+          auto: true,
+          prune: false,
+          tail_turns: 2
+        };
       }
+
+      fs.writeFileSync(configFile, JSON.stringify(configObj, null, 2), 'utf8');
+      console.log("✅ Se registraron los plugins, comandos slash (/sdlc, /plan, /review, /test, /docs) y configuración en " + path.basename(configFile) + ".");
     } catch (parseError) {
       console.error(
-        "\u26a0\ufe0f No se pudo inyectar autom\u00e1ticamente en tu opencode.json(c) por un error de formato."
+        "⚠️ No se pudo inyectar automáticamente en tu opencode.json(c) por un error de formato."
       );
-      console.log("Por favor, a\u00f1ade manualmente lo siguiente en tu array 'plugin':");
+      console.log("Por favor, añade manualmente los plugins en tu archivo de configuración:");
       console.log(JSON.stringify(pluginsToRegister, null, 2));
     }
   } catch (e) {
@@ -201,5 +227,5 @@ async function copyDirectoryAsync(src, dest) {
     console.log("    (XDG_CONFIG_HOME/.config/opencode)");
   }
   console.log("👉 REINICIA OpenCode Desktop para aplicar los cambios.");
-  console.log("👉 Usa el agente @orchestrator en tu chat para empezar a trabajar.");
+  console.log("👉 Usa el agente @orchestrator o los comandos /sdlc, /plan, /review, /test, /docs en tu chat.");
 })();
