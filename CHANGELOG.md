@@ -1,3 +1,19 @@
+## [1.3.0] - 2026-07-23
+
+### Added
+- **Modo Cavernícola Hyper-Terse**: Ahorro automático de ~80% de tokens de salida. Directiva global inyectada en `opencode.jsonc` y `ContextLoaderPlugin.ts`.
+- **Comandos Slash Nativos**: Accesos directos `/sdlc`, `/plan`, `/review`, `/test`, `/docs` integrados en el chat.
+- **Skill Integrada `opencode-best-practices`**: Guía técnica offline instalada en `~/.agents/skills/`.
+- **Suite de Pruebas Integrada (`npm test`)**: 15 tests automatizados de integración real.
+- **Workflows Guía**: Guías preparadas en `workflows/new-feature.md`, `workflows/bug-fix.md`, `workflows/security-audit.md`.
+
+### Changed
+- **`ActionValidatorPlugin`**: Refactorizado para permitir borrados de desarrollo local (`rm -rf node_modules`, `rd /s /q dist`), manteniendo bloqueada la destrucción del SO (`/`, `C:\Windows`, `format`).
+- **`@sdlc-reviewer`**: Rediseñado a formato ultra-compacto (1 sola línea por hallazgo, sin preámbulos, sin elogios y sin preguntas finales).
+- **Subagentes Ocultos**: Configuración `hidden: true` aplicada a los 6 subagentes para mantener limpia la UI del selector de agentes.
+
+---
+
 ## [1.0.8] - 2026-07-21
 
 ### Added
@@ -7,74 +23,3 @@
 
 ### Added
 - AutoDiscoveryPlugin: escanea package.json/Cargo.toml/go.mod/py al iniciar sesión, autoconfigura MCP servers (Stripe, Supabase, GitHub, Sentry, Vercel, AWS, Jira, PostgreSQL) e inyecta instrucción dinámica al orquestador para que use find-skills y descubra skills relevantes autónomamente
-
-### Changed
-- install.js: registra AutoDiscoveryPlugin en el array de plugins
-- README: añadida entrada del AutoDiscoveryPlugin en la tabla de plugins
-
-### Fixed
-- Sin execSync: el plugin ya no ejecuta npm/npx directamente (poco fiable en hooks), delega la instalación al agente vía system prompt
-
-## [1.0.6] - 2026-07-20
-
-### Fixed
-- Comma placement: trimEnd before injection so comma stays on same line as closing brace
-
-## [1.0.5] - 2026-07-20
-
-### Fixed
-- Plugin injection now preserves existing custom plugins instead of replacing the entire array
-
-## [1.0.4] - 2026-07-20
-
-### Fixed
-- Comment-stripping regex now uses capture group to preserve JSON strings (fixes injection into opencode.jsonc files with URLs)
-- Duplicate comma cleanup now handles newline-separated duplicates
-
-## [1.0.3] - 2026-07-20
-
-### Fixed
-- BOM: archivos guardados sin BOM para compatibilidad Windows
-- Plugin register: install.js now inserts plugin array inside the JSON object body
-
-## [1.0.2] — 2026-07-20
-
-### Fixed
-- UTF-8 BOM eliminado de todos los archivos para compatibilidad con Windows (el shebang en install.js fallaba en npm install -g)
-- Archivos guardados con UTF-8 sin BOM
-## [1.0.1] — 2026-07-20
-
-### Added
-- Soporte multiplataforma en install.js: detección de Windows/macOS/Linux con rutas específicas
-- Manejo de ejecución via npx (detección de rutas temporales y registro con paths absolutos)
-- Variable de entorno `OPENCODE_CONFIG_DIR` para override de ruta de configuración
-- Copia asíncrona recursiva con `fs.promises` para subdirectorios
-- Sección de instalación manual por SO en README (Windows PowerShell, macOS/Linux bash)
-- AI_SETUP_PROMPT.md con instrucciones específicas por sistema operativo
-- CONFIGURATION.md con guía completa de configuración manual
-
-### Fixed
-- Shebang añadido a install.js para funcionar como CLI global
-- Compatibilidad con jsonc preservando comentarios durante inyección de plugins
-- Mensajes específicos según SO al finalizar la instalación
-# Changelog
-
-Todas las cambios notables en este proyecto se documentarán en este archivo.
-
-El formato está basado en [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## [1.0.0] — 2026-07-19
-
-### Added
-
-- **Orquestación multi-agente SDLC**: 6 subagentes especializados (`@sdlc-planner`, `@sdlc-explorer`, `@sdlc-implementer`, `@sdlc-reviewer`, `@sdlc-tester`, `@sdlc-documenter`) coordinados por `@orchestrator`
-- **Plugin ActionValidatorPlugin**: Bloquea comandos destructivos (`rm -rf`, `format`, `shutdown`, etc.) en tiempo real y registra intentos en `agents/security.log`
-- **Plugin CleanupPlugin**: Limpia automáticamente scripts temporales de `agents/workflow/` al iniciar cada sesión
-- **Plugin ContextLoaderPlugin**: Detecta stack técnico (Node.js, Python, Rust, etc.) y frameworks, escribe `agents/context.json` y lo inyecta en el system prompt de los agentes
-- **Plugin StateTrackerPlugin**: Persiste historial de archivos modificados y plan a medio terminar en `agents/state.json` y `agents/plan.json`
-- **Plugin InitPlugin**: Inicializa proyectos vacíos creando un `README.md` básico si el workspace no contiene archivos visibles
-- **Instalador automático** (`install.js`): Copia agentes y plugins a `~/.config/opencode/`, registra hooks en `opencode.json`/`opencode.jsonc`, sin dependencias externas
-- **Sistema de permisos granular**: Cada agente define su propio frontmatter YAML con permisos para edición, bash, web fetch y task
-- **Persistencia de sesión**: El orquestador puede retomar planes interrumpidos gracias a `state.json` y `plan.json`
-
