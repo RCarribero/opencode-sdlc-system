@@ -1,6 +1,7 @@
 ---
 description: Writes and modifies code following a planner's output. Use after planning and exploration, when an approved change list is ready. Edits files, runs build / lint, does not run tests (tester does that).
 mode: subagent
+hidden: true
 color: success
 permission:
   edit: allow

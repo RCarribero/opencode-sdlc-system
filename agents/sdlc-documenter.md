@@ -1,6 +1,7 @@
 ---
 description: Writes and updates project documentation — README, CHANGELOG, JSDoc / docstrings, ADRs. Use after implementation lands. Edits files for docs only; does not touch application logic and does not run system commands.
 mode: subagent
+hidden: true
 color: secondary
 permission:
   edit: allow

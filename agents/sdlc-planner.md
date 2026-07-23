@@ -1,6 +1,7 @@
 ---
 description: Analyzes a software development request and produces a structured implementation plan. Use when a task needs to be broken down before coding: file-by-file change list, risks, acceptance criteria, and test strategy. Read-only — does not write code.
 mode: subagent
+hidden: true
 color: secondary
 permission:
   edit: deny

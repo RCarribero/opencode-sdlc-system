@@ -1,6 +1,7 @@
 ---
 description: Maps a codebase to surface conventions, patterns, dependencies, and files relevant to a task. Use at the start of any non-trivial work to ground the planner or implementer. Read-only — does not write code.
 mode: subagent
+hidden: true
 color: info
 permission:
   edit: deny

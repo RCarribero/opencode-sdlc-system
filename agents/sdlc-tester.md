@@ -1,6 +1,7 @@
 ---
 description: Runs the project's test suite, diagnoses failures, and suggests missing test cases. Use after implementation and review. Can edit files (to add tests or fix obvious test bugs) and run test commands.
 mode: subagent
+hidden: true
 color: accent
 permission:
   edit: allow

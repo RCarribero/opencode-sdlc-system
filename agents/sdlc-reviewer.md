@@ -1,6 +1,7 @@
 ---
 description: Reviews code changes for bugs, security issues, style violations, and performance problems. Use after implementation, before testing. Read-only — does not modify files, only reports findings.
 mode: subagent
+hidden: true
 color: warning
 permission:
   edit: deny
