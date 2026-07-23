@@ -8,43 +8,52 @@ export default {
 
     return {
       async ["tool.execute.before"](input: any, output: any) {
-        if (projectDir && projectDir !== 'C:\\' && projectDir !== 'C:/' && projectDir !== '/') {
-          const toolName = input.tool || input.name || input.toolName;
-          const terminalTools = ["shell", "bash", "command", "run_command"];
+        if (!projectDir) return;
 
-          if (terminalTools.includes(toolName)) {
-            const args = { ...input.args, ...output?.args, ...output };
-            const cmd = (args.command || args.cmd || args.CommandLine || "").trim();
+        const toolName = input.tool || input.name || input.toolName;
+        const terminalTools = ["shell", "bash", "command", "run_command"];
 
-            if (!cmd) return;
+        if (terminalTools.includes(toolName)) {
+          const args = { ...input.args, ...output?.args, ...output };
+          const cmd = (args.command || args.cmd || args.CommandLine || "").trim();
 
-            // Normalizar barras para coincidencia unificada
-            const normalizedCmd = cmd.replace(/\\/g, '/');
+          if (!cmd) return;
 
-            // EVALUACIÓN DE COMANDOS DE SISTEMA DESTRUCTIVOS
-            const dangerousPatterns = [
-              /^\s*rm\s+-rf?\s+[\/\*]/i,               // rm -rf / o rm -rf *
-              /^\s*(remove-item|rmdir|rd)\s+.*[\/\\]s/i, // Borrado destructivo en Windows (rd /s o rmdir /s)
-              /^\s*mkfs/i,                             // Formateo de disco
-              /^\s*(shutdown|reboot)/i,                 // Apagado del sistema
-              />\s*\/dev\/sd[a-z]/i,                   // Sobrescritura directa de disco
-              /format\s+[a-z]:\s*\/q/i                 // Formateo Windows (format c: /q)
-            ];
+          // Normalizar barras e ignorar mayúsculas/minúsculas
+          const normalizedCmd = cmd.replace(/\\/g, '/').toLowerCase();
 
-            const isDangerous = dangerousPatterns.some(pattern => pattern.test(cmd) || pattern.test(normalizedCmd));
+          // EVALUACIÓN EXCLUSIVA DE DESTRUCCIÓN CATASTRÓFICA DEL SISTEMA OPERATIVO
+          const catastrophicPatterns = [
+            // Destrucción de la raíz del sistema Unix o directorio Home (~, $HOME, %USERPROFILE%, /)
+            /^\s*rm\s+-[a-z]*r[a-z]*\s+([\/]\s*$|[\/]\*\s*$|~\s*$|\$home|%userprofile%)/i,
+            // Destrucción de raíz de Windows o directorios de sistema (C:\, C:\Windows, C:\Program Files)
+            /^\s*(rd|rmdir|remove-item|del|erase)\s+.*(c:\/$|c:\/windows|c:\/program files)/i,
+            /^\s*rm\s+-[a-z]*r[a-z]*\s+(c:\/$|c:\/windows|c:\/program files)/i,
+            // Formateo directo de particiones o discos
+            /^\s*format\s+[a-z]:/i,
+            /^\s*mkfs/i,
+            // Apagado o reinicio del equipo
+            /^\s*(shutdown|reboot|init\s+0|poweroff)/i,
+            // Sobrescritura directa de dispositivos de bloque
+            />\s*\/dev\/sd[a-z]/i,
+            />\s*\/dev\/nvme/i
+          ];
 
-            if (isDangerous) {
-              try {
-                const agentsDir = path.join(projectDir, '.agents');
-                const securityLogPath = path.join(agentsDir, 'security.log');
-                if (!fs.existsSync(agentsDir)) fs.mkdirSync(agentsDir, { recursive: true });
+          const isCatastrophic = catastrophicPatterns.some(pattern => 
+            pattern.test(cmd) || pattern.test(normalizedCmd)
+          );
 
-                const logEntry = `BLOCKED | tool: ${toolName} | command: ${cmd}\n`;
-                fs.appendFileSync(securityLogPath, logEntry);
-              } catch (e) {}
+          if (isCatastrophic) {
+            try {
+              const agentsDir = path.join(projectDir, '.agents');
+              const securityLogPath = path.join(agentsDir, 'security.log');
+              if (!fs.existsSync(agentsDir)) fs.mkdirSync(agentsDir, { recursive: true });
 
-              throw new Error(`[ActionValidatorPlugin] Acción bloqueada por seguridad. Se detectó un comando destructivo de sistema.`);
-            }
+              const logEntry = `BLOCKED_CATASTROPHIC | tool: ${toolName} | command: ${cmd}\n`;
+              fs.appendFileSync(securityLogPath, logEntry);
+            } catch (e) {}
+
+            throw new Error(`[ActionValidatorPlugin] Acción bloqueada por seguridad. Se intentó ejecutar un comando destructivo del sistema operativo.`);
           }
         }
       }

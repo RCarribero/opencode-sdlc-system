@@ -337,6 +337,30 @@ test('ActionValidatorPlugin - allows safe commands and blocks destructive system
       }, {});
     });
 
+    // Safe command 3: Local project cleanup rm -rf node_modules
+    await assert.doesNotReject(async () => {
+      await serverInstance['tool.execute.before']({
+        tool: 'run_command',
+        args: { CommandLine: 'rm -rf node_modules' }
+      }, {});
+    });
+
+    // Safe command 4: Local project cleanup rd /s /q dist
+    await assert.doesNotReject(async () => {
+      await serverInstance['tool.execute.before']({
+        tool: 'run_command',
+        args: { CommandLine: 'rd /s /q dist' }
+      }, {});
+    });
+
+    // Safe command 5: Local project cleanup remove-item ./build -recurse
+    await assert.doesNotReject(async () => {
+      await serverInstance['tool.execute.before']({
+        tool: 'run_command',
+        args: { CommandLine: 'remove-item ./build -recurse' }
+      }, {});
+    });
+
     // Destructive command 1: rm -rf /
     await assert.rejects(async () => {
       await serverInstance['tool.execute.before']({

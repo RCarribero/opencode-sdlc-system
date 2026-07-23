@@ -216,6 +216,10 @@ async function copyDirectoryAsync(src, dest) {
         };
       }
 
+      configObj.instructions = [
+        "CAVEMAN TOKEN-SAVER MODE HYPER-TERSE: Zero filler/greetings, zero explanatory story paragraphs, zero duplicate summary tables, zero conversational questions at end, EXACTLY 1 LINE per finding/bullet point."
+      ];
+
       fs.writeFileSync(configFile, JSON.stringify(configObj, null, 2), 'utf8');
       console.log("✅ Se registraron los plugins, comandos slash (/sdlc, /plan, /review, /test, /docs) y configuración en " + path.basename(configFile) + ".");
     } catch (parseError) {

@@ -106,7 +106,19 @@ export default {
               readmeContent ? `### Project README.md (Summary)\n${readmeContent}` : ''
             ].filter(Boolean).join('\n---\n');
 
+            const cavemanRule = `
+[GLOBAL RULE - CAVEMAN TOKEN-SAVER MODE HYPER-TERSE]
+- ZERO filler. No greetings, no preamble ("Reviewer funcionó...").
+- ZERO explanatory paragraphs or stories ("El script hace import... Funciona hoy porque...").
+- ZERO duplicate tables or summary sections.
+- ZERO praise sections ("Lo que ya está bien").
+- ZERO conversational questions at output end ("¿Aplico los fixes?").
+- EXACTLY 1 LINE PER FINDING OR BULLET POINT. Lead immediately with Verdict/Diffs/Code.
+- Maintain 100% technical accuracy while minimizing output tokens.`;
+
             const injection = `
+${cavemanRule}
+
 [SYSTEM NOTIFICATION - PROJECT WORKSPACE CONTEXT]
 The following static project context is loaded for this session:
 ---
