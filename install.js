@@ -34,10 +34,14 @@ const isNpxExecution = __dirname.includes('npm-cache')
 
 const localPluginsDir = path.join(__dirname, 'plugins');
 const localAgentsDir = path.join(__dirname, 'agents');
+const localSkillsDir = path.join(__dirname, 'skills');
 const targetPluginsDir = path.join(configPath, 'plugins');
 const targetAgentsDir = path.join(configPath, 'agents');
+const targetSkillsDir = path.join(configPath, 'skills');
+const globalAgentsSkillsDir = path.join(os.homedir(), '.agents', 'skills');
 
 async function copyDirectoryAsync(src, dest) {
+  if (!fs.existsSync(src)) return 0;
   await fsp.mkdir(dest, { recursive: true });
   const entries = await fsp.readdir(src, { withFileTypes: true });
   let count = 0;
@@ -56,11 +60,14 @@ async function copyDirectoryAsync(src, dest) {
 
 (async () => {
   try {
-    console.log("📂 Copiando agentes y plugins...");
+    console.log("📂 Copiando agentes, plugins y skills...");
     const pluginsCount = await copyDirectoryAsync(localPluginsDir, targetPluginsDir);
     console.log(`✅ Copiados ${pluginsCount} plugins a ${targetPluginsDir}`);
     const agentsCount = await copyDirectoryAsync(localAgentsDir, targetAgentsDir);
     console.log(`✅ Copiados ${agentsCount} agentes a ${targetAgentsDir}`);
+    const skillsCount = await copyDirectoryAsync(localSkillsDir, targetSkillsDir);
+    await copyDirectoryAsync(localSkillsDir, globalAgentsSkillsDir);
+    console.log(`✅ Copiadas ${skillsCount} skills a ${targetSkillsDir} y ${globalAgentsSkillsDir}`);
   } catch (e) {
     console.error("❌ Error copiando archivos:", e.message);
     process.exit(1);
