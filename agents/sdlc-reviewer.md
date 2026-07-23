@@ -5,7 +5,6 @@ color: warning
 permission:
   edit: deny
   bash:
-    "*": "allow"
     "git diff*": "allow"
     "git log*": "allow"
     "git show*": "allow"

@@ -1,25 +1,26 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
+import { exec } from 'child_process';
 
 /*
  * ============================================================================
- * AutoDiscoveryPlugin
- * ----------------------------------------------------------------------------
- * Hook de auto-descubrimiento que:
- *   1. Detecta si el proyecto es nuevo (carpeta .agents/ no existe)
- *   2. Escanea package.json, Cargo.toml, go.mod, requirements.txt, pyproject.toml
- *   3. Identifica la pila tecnológica
- *   4. Configura automáticamente Skills y MCP servers relevantes
- *   5. Para servicios que requieren API Key (Stripe, etc.), envía un mensaje
- *      proactivo al chat con instrucciones exactas
+ * AutoDiscoveryPlugin v1.0.7
+ * ============================================================================
+ * Runs on first message of each session:
+ *   1. Scans package.json / Cargo.toml / go.mod / requirements.txt
+ *   2. Installs relevant skills to ~/.agents/skills/ (async, non-blocking)
+ *   3. Configures MCP servers in PROJECT-level .opencode/opencode.jsonc
+ *      (NOT global — writing to global causes OpenCode to reload the session)
+ *   4. Persists results to .agents/auto-discovery.json
+ *   5. Injects a concise report + skill load instructions into system prompt
+ *      for ALL projects (not just new ones)
  * ============================================================================
  */
 
-/* ---------------------------------------------------------------------------
- * Catálogo de integraciones MCP conocidas
- * Cada entrada define: tecnología que la dispara, comando MCP, args, y
- * metadatos para el mensaje al usuario.
- * -------------------------------------------------------------------------*/
+// ---------------------------------------------------------------------------
+// MCP Registry (8 servers)
+// ---------------------------------------------------------------------------
 interface McpEntry {
   id: string;
   displayName: string;
@@ -39,7 +40,7 @@ const MCP_REGISTRY: Record<string, McpEntry> = {
     displayName: 'Stripe MCP',
     packageName: '@stripe/mcp',
     command: 'npx',
-    args: ['-y', '@stripe/mcp', '--api-key', '${STRIPE_API_KEY}'],
+    args: ['-y', '@stripe/mcp', '--tools=all'],
     requiresApiKey: true,
     apiKeyEnvVar: 'STRIPE_API_KEY',
     apiKeyUrl: 'https://dashboard.stripe.com/apikeys',
@@ -158,33 +159,52 @@ const MCP_REGISTRY: Record<string, McpEntry> = {
   },
 };
 
-/* Detección: mapea nombres de paquetes npm a entradas MCP */
+// ---------------------------------------------------------------------------
+// Package → MCP mapping
+// ---------------------------------------------------------------------------
 const PACKAGE_TO_MCP: Record<string, string[]> = {
   stripe: ['stripe'],
   '@stripe/react-stripe-js': ['stripe'],
+  '@stripe/stripe-js': ['stripe'],
   supabase: ['supabase'],
   '@supabase/supabase-js': ['supabase'],
   pg: ['postgres'],
   'pg-promise': ['postgres'],
+  prisma: ['postgres'],
+  '@prisma/client': ['postgres'],
   '@sentry/node': ['sentry'],
   '@sentry/react': ['sentry'],
   '@sentry/nextjs': ['sentry'],
   '@octokit/rest': ['github'],
-  '@anthropic/mcp-github': ['github'],
 };
 
-/* ---------------------------------------------------------------------------
- * Estructura de tecnología detectada
- * -------------------------------------------------------------------------*/
+// ---------------------------------------------------------------------------
+// Tech → Skill mapping
+// ---------------------------------------------------------------------------
+const TECH_TO_SKILL: Record<string, string[]> = {
+  'stripe': ['stripe-best-practices'],
+  '@stripe/react-stripe-js': ['stripe-best-practices'],
+  '@stripe/stripe-js': ['stripe-best-practices'],
+  'tailwindcss': ['tailwind-design-system'],
+};
+
+const SKILL_INSTALL_SOURCE: Record<string, string> = {
+  'stripe-best-practices': 'stripe/ai',
+  'tailwind-design-system': 'giuseppe-trisciuoglio/developer-kit',
+};
+
+// ---------------------------------------------------------------------------
+// Detected tech interface
+// ---------------------------------------------------------------------------
 interface DetectedTech {
   packageName: string;
   version?: string;
   isDev: boolean;
 }
 
-/* ---------------------------------------------------------------------------
- * Helpers
- * -------------------------------------------------------------------------*/
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 function getProjectDir(ctx: any): string | null {
   const dir = ctx.directory || ctx.project?.directory;
   if (!dir || dir === 'C:\\' || dir === 'C:/' || dir === '/') return null;
@@ -193,16 +213,14 @@ function getProjectDir(ctx: any): string | null {
 
 function readJsonSafe(filePath: string): any {
   try {
-    if (fs.existsSync(filePath)) {
-      return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    }
-  } catch {
-    /* ignorar */
-  }
+    if (fs.existsSync(filePath)) return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch {}
   return null;
 }
 
-/** Escanea package.json y extrae todas las dependencias */
+// ---------------------------------------------------------------------------
+// Dependency scanners
+// ---------------------------------------------------------------------------
 function scanPackageJson(projectDir: string): DetectedTech[] {
   const pkgPath = path.join(projectDir, 'package.json');
   const pkg = readJsonSafe(pkgPath);
@@ -226,7 +244,6 @@ function scanPackageJson(projectDir: string): DetectedTech[] {
   return result;
 }
 
-/** Escanea Cargo.toml buscando dependencias Rust */
 function scanCargoToml(projectDir: string): DetectedTech[] {
   const cargoPath = path.join(projectDir, 'Cargo.toml');
   if (!fs.existsSync(cargoPath)) return [];
@@ -235,21 +252,15 @@ function scanCargoToml(projectDir: string): DetectedTech[] {
     const result: DetectedTech[] = [];
     const depSection = content.match(/\[dependencies\]([^[]*)/);
     if (depSection) {
-      const lines = depSection[1].split('\n');
-      for (const line of lines) {
+      for (const line of depSection[1].split('\n')) {
         const match = line.match(/^\s*(\S+)\s*=/);
-        if (match) {
-          result.push({ packageName: match[1], isDev: false });
-        }
+        if (match) result.push({ packageName: match[1], isDev: false });
       }
     }
     return result;
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 
-/** Escanea go.mod buscando dependencias Go */
 function scanGoMod(projectDir: string): DetectedTech[] {
   const goPath = path.join(projectDir, 'go.mod');
   if (!fs.existsSync(goPath)) return [];
@@ -258,17 +269,12 @@ function scanGoMod(projectDir: string): DetectedTech[] {
     const result: DetectedTech[] = [];
     for (const line of content.split('\n')) {
       const match = line.match(/^\s+(\S+)\s+/);
-      if (match) {
-        result.push({ packageName: match[1], isDev: false });
-      }
+      if (match) result.push({ packageName: match[1], isDev: false });
     }
     return result;
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 
-/** Escanea requirements.txt / pyproject.toml buscando Python packages */
 function scanPythonDeps(projectDir: string): DetectedTech[] {
   const result: DetectedTech[] = [];
 
@@ -280,12 +286,10 @@ function scanPythonDeps(projectDir: string): DetectedTech[] {
         const trimmed = line.trim();
         if (trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('-')) {
           const pkgMatch = trimmed.match(/^([a-zA-Z0-9_.-]+)/);
-          if (pkgMatch) {
-            result.push({ packageName: pkgMatch[1].toLowerCase(), isDev: false });
-          }
+          if (pkgMatch) result.push({ packageName: pkgMatch[1].toLowerCase(), isDev: false });
         }
       }
-    } catch { /* ignorar */ }
+    } catch {}
   }
 
   const pyprojectPath = path.join(projectDir, 'pyproject.toml');
@@ -301,205 +305,124 @@ function scanPythonDeps(projectDir: string): DetectedTech[] {
           }
         }
       }
-    } catch { /* ignorar */ }
+    } catch {}
   }
 
   return result;
 }
 
-/** Resuelve qué MCP servers aplicar según las tecnologías detectadas */
+// ---------------------------------------------------------------------------
+// MCP resolution
+// ---------------------------------------------------------------------------
 function resolveMcpServers(deps: DetectedTech[]): Set<string> {
   const mcpIds = new Set<string>();
-
   for (const dep of deps) {
     const pkgName = dep.packageName.toLowerCase();
-
-    // Coincidencia exacta en el registro
-    if (MCP_REGISTRY[pkgName]) {
-      mcpIds.add(pkgName);
-    }
-
-    // Coincidencia por mapeo paquete → MCP
+    if (MCP_REGISTRY[pkgName]) mcpIds.add(pkgName);
     const mapped = PACKAGE_TO_MCP[pkgName];
-    if (mapped) {
-      for (const id of mapped) mcpIds.add(id);
-    }
-
-    // Coincidencia por substring (ej. sentry en @sentry/xyz)
-    for (const [key, ids] of Object.entries(PACKAGE_TO_MCP)) {
-      if (pkgName.includes(key)) {
-        for (const id of ids) mcpIds.add(id);
-      }
-    }
-
-    // Coincidencia en el registro por substring
-    for (const [mcpId, entry] of Object.entries(MCP_REGISTRY)) {
-      if (pkgName.includes(mcpId)) {
-        mcpIds.add(mcpId);
-      }
-    }
+    if (mapped) for (const id of mapped) mcpIds.add(id);
   }
-
   return mcpIds;
 }
 
-/** Lee la configuración de OpenCode (opencode.json / opencode.jsonc) */
-function getOpenCodeConfigPath(): string | null {
-  const homeDir = process.env.OPENCODE_CONFIG_DIR
-    || path.join(require('os').homedir(), '.config', 'opencode');
-  console.log('[AutoDiscoveryPlugin] getOpenCodeConfigPath homeDir:', homeDir);
-
-  const jsonc = path.join(homeDir, 'opencode.jsonc');
-  const json = path.join(homeDir, 'opencode.json');
-
-  if (fs.existsSync(jsonc)) {
-    console.log('[AutoDiscoveryPlugin] encontrado opencode.jsonc');
-    return jsonc;
+// ---------------------------------------------------------------------------
+// Skill resolution + async install
+// ---------------------------------------------------------------------------
+function resolveSkills(deps: DetectedTech[]): string[] {
+  const skillIds = new Set<string>();
+  for (const dep of deps) {
+    const pkgName = dep.packageName.toLowerCase();
+    for (const [key, skills] of Object.entries(TECH_TO_SKILL)) {
+      if (pkgName === key || pkgName.includes(key)) {
+        for (const s of skills) skillIds.add(s);
+      }
+    }
   }
-  if (fs.existsSync(json)) {
-    console.log('[AutoDiscoveryPlugin] encontrado opencode.json');
-    return json;
-  }
-  console.log('[AutoDiscoveryPlugin] NO encontrado opencode.json ni .jsonc');
-  return null;
+  return Array.from(skillIds);
 }
 
-/** Añade entradas MCP a la configuración de OpenCode */
-function registerMcpInConfig(mcpIds: Set<string>): { configured: string[]; pendingKeys: string[] } {
-  const configPath = getOpenCodeConfigPath();
-  if (!configPath) {
-    console.log('[AutoDiscoveryPlugin] registerMcpInConfig: sin configPath, abortando');
-    return { configured: [], pendingKeys: [] };
-  }
-  console.log('[AutoDiscoveryPlugin] registerMcpInConfig configPath:', configPath);
-
-  try {
-    let content = fs.readFileSync(configPath, 'utf8');
-    console.log('[AutoDiscoveryPlugin] config leído, longitud:', content.length);
-    let config: any;
-
-    try {
-      const stripped = content.replace(
-        /("(?:[^"\\]|\\.)*")|\/\/.*|\/\*[\s\S]*?\*\//g,
-        (m: string, s: string) => s || ''
-      );
-      config = JSON.parse(stripped);
-      console.log('[AutoDiscoveryPlugin] config parseado OK, tiene mcpServers:', !!config.mcpServers);
-    } catch (e) {
-      console.log('[AutoDiscoveryPlugin] error parseando config:', e);
-      return { configured: [], pendingKeys: [] };
-    }
-
-    if (!config.mcpServers) config.mcpServers = {};
-
-    const configured: string[] = [];
-    const pendingKeys: string[] = [];
-
-    for (const mcpId of mcpIds) {
-      const entry = MCP_REGISTRY[mcpId];
-      if (!entry) {
-        console.log('[AutoDiscoveryPlugin] MCP no encontrado en registro:', mcpId);
-        continue;
-      }
-
-      if (config.mcpServers[mcpId]) {
-        console.log('[AutoDiscoveryPlugin] MCP ya configurado:', mcpId);
-        configured.push(mcpId);
-        continue;
-      }
-
-      const serverConfig: any = {
-        command: entry.command,
-        args: entry.args,
-      };
-
-      config.mcpServers[mcpId] = serverConfig;
-      configured.push(mcpId);
-      console.log('[AutoDiscoveryPlugin] MCP registrado:', mcpId, 'requiresApiKey:', !!entry.requiresApiKey);
-
-      if (entry.requiresApiKey) {
-        pendingKeys.push(mcpId);
-      }
-    }
-
-    if (configured.length > 0) {
-      content = content.replace(/,\s*"mcpServers"\s*:\s*\{[\s\S]*?\}/, '');
-      console.log('[AutoDiscoveryPlugin] mcpServers existente eliminado del content');
-
-      content = content.replace(
-        /([\s\S]*)\}\s*$/,
-        (match: string, before: string) =>
-          (before.endsWith(',') || before.endsWith('{') ? before : before + ',') +
-          '\n    "mcpServers": ' + JSON.stringify(config.mcpServers, null, 4) + '\n}'
-      );
-
-      fs.writeFileSync(configPath, content, 'utf8');
-      console.log('[AutoDiscoveryPlugin] opencode.json actualizado con mcpServers');
+function copyDirSync(src: string, dest: string) {
+  if (!fs.existsSync(src)) return;
+  fs.mkdirSync(dest, { recursive: true });
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      copyDirSync(srcPath, destPath);
     } else {
-      console.log('[AutoDiscoveryPlugin] no hay MCPs nuevos que configurar');
+      fs.copyFileSync(srcPath, destPath);
     }
-
-    return { configured, pendingKeys };
-  } catch (e) {
-    console.log('[AutoDiscoveryPlugin] error en registerMcpInConfig:', e);
-    return { configured: [], pendingKeys: [] };
   }
 }
 
-/** Construye el mensaje proactivo para el chat */
-function buildProactiveMessage(
-  configured: string[],
-  pendingKeys: string[]
-): string {
-  const parts: string[] = [];
+function ensureSkillInProject(skillId: string, projectDir?: string): boolean {
+  const globalSkillDir = path.join(os.homedir(), '.agents', 'skills', skillId);
+  const hasGlobal = fs.existsSync(path.join(globalSkillDir, 'SKILL.md'));
 
-  if (configured.length === 0 && pendingKeys.length === 0) return '';
+  if (projectDir && projectDir !== 'C:\\' && projectDir !== 'C:/' && projectDir !== '/') {
+    const projectOpencodeSkillDir = path.join(projectDir, '.opencode', 'skills', skillId);
+    const projectAgentsSkillDir = path.join(projectDir, '.agents', 'skills', skillId);
 
-  parts.push('🔧 **AutoDiscoveryPlugin** — Configuración automática completada\n');
+    const hasLocalOpencode = fs.existsSync(path.join(projectOpencodeSkillDir, 'SKILL.md'));
+    const hasLocalAgents = fs.existsSync(path.join(projectAgentsSkillDir, 'SKILL.md'));
 
-  if (configured.length > 0) {
-    parts.push(
-      '### MCP Servers configurados\n' +
-      configured.map((id) => {
-        const entry = MCP_REGISTRY[id];
-        return `- **${entry?.displayName || id}** \`npx ${entry?.packageName || ''}\``;
-      }).join('\n')
-    );
-  }
-
-  if (pendingKeys.length > 0) {
-    parts.push('\n### ⚠️ API Keys requeridas\n');
-    for (const id of pendingKeys) {
-      const entry = MCP_REGISTRY[id];
-      if (!entry) continue;
-
-      parts.push(`#### ${entry.displayName}`);
-      parts.push(`- **Dashboard:** ${entry.apiKeyUrl}`);
-      parts.push(`- **Variable:** \`${entry.apiKeyEnvVar}\``);
-      parts.push(`- **Qué pegar:** ${entry.apiKeyFieldLabel}`);
-      parts.push(`- **Instrucciones:**`);
-      parts.push('  ```');
-      parts.push(entry.installNote);
-      parts.push('  ```');
-      parts.push('');
+    if (hasGlobal) {
+      if (!hasLocalOpencode) copyDirSync(globalSkillDir, projectOpencodeSkillDir);
+      if (!hasLocalAgents) copyDirSync(globalSkillDir, projectAgentsSkillDir);
+      return true;
     }
-    parts.push(
-      'Una vez configuradas las keys, **reinicia OpenCode Desktop** para que los MCPs se activen.'
-    );
+
+    if (hasLocalOpencode || hasLocalAgents) {
+      const src = hasLocalOpencode ? projectOpencodeSkillDir : projectAgentsSkillDir;
+      if (!hasGlobal) copyDirSync(src, globalSkillDir);
+      if (!hasLocalOpencode) copyDirSync(src, projectOpencodeSkillDir);
+      if (!hasLocalAgents) copyDirSync(src, projectAgentsSkillDir);
+      return true;
+    }
   }
 
-  return parts.join('\n');
+  return hasGlobal;
 }
 
-/** Construye un resumen legible del stack detectado para la instrucción al orquestador */
+function getInstalledSkills(skillIds: string[], projectDir?: string): string[] {
+  return skillIds.filter(id => ensureSkillInProject(id, projectDir));
+}
+
+function installMissingSkillsAsync(skillIds: string[], projectDir: string): void {
+  for (const skillId of skillIds) {
+    if (ensureSkillInProject(skillId, projectDir)) continue;
+    const source = SKILL_INSTALL_SOURCE[skillId];
+    if (source) {
+      exec(`npx skills add ${source}@${skillId} -g -y`, { windowsHide: true }, (err) => {
+        if (err) {
+          console.error(`[AutoDiscoveryPlugin] Error installing skill ${skillId}:`, err.message);
+        } else {
+          console.log(`[AutoDiscoveryPlugin] Skill installed: ${skillId}`);
+          ensureSkillInProject(skillId, projectDir);
+          try {
+            const resultPath = path.join(projectDir, '.agents', 'auto-discovery.json');
+            if (fs.existsSync(resultPath)) {
+              const res = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+              res.skillsInstalled = getInstalledSkills(res.skillsDetected || [], projectDir);
+              fs.writeFileSync(resultPath, JSON.stringify(res, null, 2), 'utf8');
+            }
+          } catch {}
+        }
+      });
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Stack summary builder
+// ---------------------------------------------------------------------------
 function buildStackSummary(deps: DetectedTech[]): string {
   const frameworks = new Set<string>();
-  const languages = new Set<string>();
   const highlights: string[] = [];
 
   for (const dep of deps) {
     const pkg = dep.packageName.toLowerCase();
-    if (pkg === 'next' || pkg === 'next.js') frameworks.add('Next.js');
+    if (pkg === 'next') frameworks.add('Next.js');
     else if (pkg === 'react') frameworks.add('React');
     else if (pkg === 'vue' || pkg === 'nuxt') frameworks.add('Vue');
     else if (pkg === 'express') frameworks.add('Express');
@@ -508,26 +431,94 @@ function buildStackSummary(deps: DetectedTech[]): string {
     else if (pkg === 'svelte' || pkg === '@sveltejs/kit') frameworks.add('Svelte');
     else if (pkg.includes('stripe')) highlights.push('stripe');
     else if (pkg.includes('supabase')) highlights.push('supabase');
-    else if (pkg === 'pg' || pkg.includes('postgres') || pkg.includes('prisma')) highlights.push('database');
+    else if (pkg === 'pg' || pkg.includes('prisma')) highlights.push('database');
     else if (pkg.includes('sentry')) highlights.push('sentry');
-    else if (pkg.includes('aws')) highlights.push('aws');
-    else if (pkg === 'vitest' || pkg === 'jest' || pkg === 'mocha' || pkg === 'playwright') highlights.push('testing');
   }
-
-  if (deps.some((d) => d.packageName.endsWith('.ts') || d.packageName === 'typescript')) languages.add('TypeScript');
-  languages.add('JavaScript');
 
   const parts: string[] = [];
   if (frameworks.size > 0) parts.push(Array.from(frameworks).join(', '));
-  if (highlights.length > 0) parts.push('integrations: ' + highlights.join(', '));
-  parts.push(Array.from(languages).join(', '));
-
-  return parts.join(' | ') || 'JavaScript';
+  if (highlights.length > 0) parts.push('integrations: ' + [...new Set(highlights)].join(', '));
+  return parts.join(' | ') || 'JavaScript/TypeScript';
 }
 
-/* ---------------------------------------------------------------------------
- * Export del plugin
- * -------------------------------------------------------------------------*/
+// ---------------------------------------------------------------------------
+// MCP config — writes to PROJECT-level .opencode/opencode.jsonc
+// NEVER writes to global config (that causes OpenCode to reload the session)
+// ---------------------------------------------------------------------------
+function setupProjectMcpConfig(
+  projectDir: string,
+  mcpIds: Set<string>
+): { configured: string[]; pendingKeys: string[] } {
+  try {
+    const opencodeDir = path.join(projectDir, '.opencode');
+    const configPath = path.join(opencodeDir, 'opencode.jsonc');
+
+    if (!fs.existsSync(opencodeDir)) {
+      fs.mkdirSync(opencodeDir, { recursive: true });
+    }
+
+    let config: any = {};
+    if (fs.existsSync(configPath)) {
+      try {
+        const raw = fs.readFileSync(configPath, 'utf8');
+        const stripped = raw.replace(
+          /"((?:[^"\\]|\\.)*)"|\/\/.*|\/\*[\s\S]*?\*\//g,
+          (m: string, s: string) => (s !== undefined ? `"${s}"` : '')
+        );
+        config = JSON.parse(stripped);
+      } catch { config = {}; }
+    }
+
+    if (!config.mcp) config.mcp = {};
+
+    const configured: string[] = [];
+    const pendingKeys: string[] = [];
+
+    for (const mcpId of mcpIds) {
+      const entry = MCP_REGISTRY[mcpId];
+      if (!entry) continue;
+
+      const cmdArray = Array.isArray(entry.command)
+        ? entry.command
+        : [entry.command, ...(entry.args || [])];
+
+      if (config.mcp[mcpId]) {
+        if (typeof config.mcp[mcpId].command === 'string' || !config.mcp[mcpId].enabled) {
+          config.mcp[mcpId].type = 'local';
+          config.mcp[mcpId].command = cmdArray;
+          config.mcp[mcpId].enabled = true;
+          delete config.mcp[mcpId].args;
+          configured.push(mcpId);
+        } else {
+          configured.push(mcpId);
+        }
+        continue;
+      }
+
+      config.mcp[mcpId] = {
+        type: 'local',
+        command: cmdArray,
+        enabled: true,
+      };
+      configured.push(mcpId);
+
+      if (entry.requiresApiKey) pendingKeys.push(mcpId);
+    }
+
+    if (configured.length > 0) {
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+    }
+
+    return { configured, pendingKeys };
+  } catch (e) {
+    console.error('[AutoDiscoveryPlugin] Error in setupProjectMcpConfig:', e);
+    return { configured: [], pendingKeys: [] };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Plugin export
+// ---------------------------------------------------------------------------
 export default {
   id: 'AutoDiscoveryPlugin',
   async server(ctx: any) {
@@ -535,161 +526,176 @@ export default {
     let discoveryDone = false;
     let isNewProject = false;
 
-    console.log('[AutoDiscoveryPlugin] server() iniciado, projectDir:', projectDir);
-
     return {
-      /* ---------------------------------------------------------------
-       * session.created — Determinar si el proyecto es nuevo
-       * ---------------------------------------------------------------*/
+      // -----------------------------------------------------------------
+      // session.created — detect if project is new
+      // -----------------------------------------------------------------
       async event({ event }: any) {
         if (event.type === 'session.created') {
           discoveryDone = false;
-          console.log('[AutoDiscoveryPlugin] session.created disparado');
-
           if (projectDir) {
             const agentsDir = path.join(projectDir, '.agents');
             isNewProject = !fs.existsSync(agentsDir);
-            console.log('[AutoDiscoveryPlugin] isNewProject:', isNewProject, 'agentsDir:', agentsDir);
-
             if (isNewProject) {
-              try {
-                fs.mkdirSync(agentsDir, { recursive: true });
-                console.log('[AutoDiscoveryPlugin] .agents/ creado');
-              } catch (e) {
-                console.log('[AutoDiscoveryPlugin] error creando .agents/', e);
-              }
+              try { fs.mkdirSync(agentsDir, { recursive: true }); } catch {}
             }
-          } else {
-            console.log('[AutoDiscoveryPlugin] projectDir es null, no se puede continuar');
           }
         }
       },
 
-      /* ---------------------------------------------------------------
-       * experimental.chat.messages.transform
-       * Se ejecuta después de que ContextLoaderPlugin haya inyectado el
-       * contexto. Aquí escaneamos el proyecto y configuramos MCPs.
-       * ---------------------------------------------------------------*/
+      // -----------------------------------------------------------------
+      // experimental.chat.messages.transform
+      // Runs ONCE per session on the first message.
+      // Scans deps, installs skills, configures project-level MCPs,
+      // persists auto-discovery.json.
+      // Does NOT push to output.messages (that consumes the model's turn).
+      // -----------------------------------------------------------------
       async ['experimental.chat.messages.transform'](input: any, output: any) {
-        if (discoveryDone || !projectDir) {
-          console.log('[AutoDiscoveryPlugin] messages.transform saltado: discoveryDone=' + discoveryDone + ', projectDir=' + projectDir);
-          return;
-        }
-        discoveryDone = true;
-        console.log('[AutoDiscoveryPlugin] messages.transform iniciado, projectDir:', projectDir);
+        if (discoveryDone || !projectDir) return;
 
+        // 1. Scan all dependency manifests
         const allDeps: DetectedTech[] = [
           ...scanPackageJson(projectDir),
           ...scanCargoToml(projectDir),
           ...scanGoMod(projectDir),
           ...scanPythonDeps(projectDir),
         ];
-        console.log('[AutoDiscoveryPlugin] dependencias detectadas:', allDeps.length);
+        if (allDeps.length === 0) return;
 
-        if (allDeps.length === 0) {
-          console.log('[AutoDiscoveryPlugin] 0 dependencias, abortando');
-          return;
-        }
+        discoveryDone = true;
 
+        // 2. Resolve MCPs and skills
         const mcpIds = resolveMcpServers(allDeps);
-        console.log('[AutoDiscoveryPlugin] MCPs resueltos:', Array.from(mcpIds));
+        const skillIds = resolveSkills(allDeps);
+        const installedSkills = getInstalledSkills(skillIds, projectDir);
 
-        if (mcpIds.size === 0 && !isNewProject) {
-          console.log('[AutoDiscoveryPlugin] sin MCPs y proyecto existente, abortando');
-          return;
+        // 3. Install any missing skills (async, non-blocking)
+        installMissingSkillsAsync(skillIds, projectDir);
+
+        // 4. Configure MCPs in PROJECT-level config (deferred to avoid blocking)
+        const pendingKeys = Array.from(mcpIds).filter(id => MCP_REGISTRY[id]?.requiresApiKey);
+        if (mcpIds.size > 0) {
+          setTimeout(() => {
+            try {
+              setupProjectMcpConfig(projectDir, mcpIds);
+            } catch (e) {
+              console.error('[AutoDiscoveryPlugin] Deferred MCP config error:', e);
+            }
+          }, 100);
         }
 
-        const { configured, pendingKeys } = registerMcpInConfig(mcpIds);
-        console.log('[AutoDiscoveryPlugin] MCPs configurados:', configured, 'pendingKeys:', pendingKeys);
+        // 5. Persist auto-discovery.json
+        try {
+          const agentsDir = path.join(projectDir, '.agents');
+          if (!fs.existsSync(agentsDir)) fs.mkdirSync(agentsDir, { recursive: true });
 
-        if (projectDir) {
-          try {
-            const resultPath = path.join(projectDir, '.agents', 'auto-discovery.json');
-            const result = {
-              detectedAt: new Date().toISOString(),
-              isNewProject,
-              dependenciesFound: allDeps.length,
-              mcpConfigured: configured,
-              mcpPendingKeys: pendingKeys,
-              stackSummary: buildStackSummary(allDeps),
-            };
-            fs.writeFileSync(resultPath, JSON.stringify(result, null, 2), 'utf8');
-            console.log('[AutoDiscoveryPlugin] auto-discovery.json escrito en:', resultPath);
-          } catch (e) {
-            console.log('[AutoDiscoveryPlugin] error escribiendo auto-discovery.json:', e);
-          }
+          const resultPath = path.join(agentsDir, 'auto-discovery.json');
+          const result = {
+            detectedAt: new Date().toISOString(),
+            isNewProject,
+            dependenciesFound: allDeps.length,
+            mcpDetected: Array.from(mcpIds),
+            mcpPendingKeys: pendingKeys,
+            skillsDetected: skillIds,
+            skillsInstalled: installedSkills,
+            stackSummary: buildStackSummary(allDeps),
+          };
+          fs.writeFileSync(resultPath, JSON.stringify(result, null, 2), 'utf8');
+        } catch (e) {
+          console.error('[AutoDiscoveryPlugin] Error writing auto-discovery.json:', e);
         }
-
       },
 
-      /* ---------------------------------------------------------------
-       * experimental.chat.system.transform
-       * Inyecta en el system prompt:
-       *   - El reporte de MCPs configurados
-       *   - Si es proyecto nuevo: instrucción dinámica al orquestador
-       *     para que use find-skills y descubra skills autónomamente
-       * ---------------------------------------------------------------*/
+      // -----------------------------------------------------------------
+      // experimental.chat.system.transform
+      // Injects discovery report + skill load instructions into system
+      // prompt for EVERY project (not just new ones).
+      // -----------------------------------------------------------------
       async ['experimental.chat.system.transform'](input: any, output: any) {
-        if (!projectDir) {
-          console.log('[AutoDiscoveryPlugin] system.transform saltado: sin projectDir');
-          return;
-        }
+        if (!projectDir) return;
 
         const resultPath = path.join(projectDir, '.agents', 'auto-discovery.json');
-        console.log('[AutoDiscoveryPlugin] system.transform buscando:', resultPath);
-        if (!fs.existsSync(resultPath)) {
-          console.log('[AutoDiscoveryPlugin] auto-discovery.json no existe, abortando');
-          return;
-        }
+        if (!fs.existsSync(resultPath)) return;
 
         try {
           const result = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
-          console.log('[AutoDiscoveryPlugin] auto-discovery.json leído:', JSON.stringify(result).substring(0, 200));
           const sections: string[] = [];
 
-          if (result.mcpConfigured?.length > 0 || result.mcpPendingKeys?.length > 0) {
-            const mcpLines: string[] = [
-              '### Auto-Discovery Report (.agents/auto-discovery.json)',
-              'AutoDiscoveryPlugin configured the following MCP servers for this project:',
-            ];
-            if (result.mcpConfigured?.length > 0) {
-              mcpLines.push('- MCP servers configured: ' + result.mcpConfigured.join(', '));
+          // -- Discovery report header
+          sections.push(
+            '### Auto-Discovery Report (.agents/auto-discovery.json)\n' +
+            'AutoDiscoveryPlugin detected the following for this project:\n' +
+            `- Stack: **${result.stackSummary || 'Standard'}**`
+          );
+
+          // -- MCP Server Auto-Configuration Notice & Setup Instructions
+          if (result.mcpDetected?.length > 0) {
+            sections.push('\n### 🔧 Auto-Configured MCP Servers (.opencode/opencode.jsonc)');
+            sections.push('AutoDiscoveryPlugin automatically added the following MCP server(s) to `.opencode/opencode.jsonc`:');
+
+            for (const id of result.mcpDetected) {
+              const entry = MCP_REGISTRY[id];
+              if (!entry) continue;
+              const cmdStr = `npx ${entry.packageName} ${entry.args.join(' ')}`;
+              sections.push(`- **${entry.displayName}** (\`${cmdStr}\`) — Configured in project \`.opencode/opencode.jsonc\``);
             }
+
             if (result.mcpPendingKeys?.length > 0) {
-              mcpLines.push('- MCP servers pending API keys: ' + result.mcpPendingKeys.join(', '));
+              sections.push('\n#### ⚠️ Required API Keys & Setup Instructions:');
+              for (const id of result.mcpPendingKeys) {
+                const entry = MCP_REGISTRY[id];
+                if (!entry) continue;
+                sections.push(`\n##### 🔌 ${entry.displayName}`);
+                if (entry.apiKeyEnvVar) sections.push(`- **Environment Variable:** \`${entry.apiKeyEnvVar}\``);
+                if (entry.apiKeyUrl) sections.push(`- **Dashboard URL:** ${entry.apiKeyUrl}`);
+                if (entry.apiKeyFieldLabel) sections.push(`- **Value to paste:** ${entry.apiKeyFieldLabel}`);
+                if (entry.installNote) {
+                  sections.push(`- **Setup Instructions:**\n  ${entry.installNote.replace(/\n/g, '\n  ')}`);
+                }
+              }
+              sections.push('\n> **Note:** After setting up the required environment variables or keys, **restart OpenCode Desktop** for the MCP server tools to activate.');
             }
-            sections.push(mcpLines.join('\n'));
           }
 
-          if (result.isNewProject && result.stackSummary) {
+          // -- Skill load instructions (dynamically check installed skills on every turn)
+          const currentlyInstalled = getInstalledSkills(result.skillsDetected || [], projectDir);
+          const uninstalled = (result.skillsDetected || []).filter(s => !currentlyInstalled.includes(s));
+
+          if (currentlyInstalled.length > 0) {
             sections.push(
-              '### 🧠 AUTO-SKILLS: INSTRUCCIÓN OBLIGATORIA PARA EL ORQUESTADOR\n' +
-              'SISTEMA: Este es un proyecto nuevo. He analizado el package.json y detectado el stack: **' +
-              result.stackSummary +
-              '**. Tienes instalada la herramienta find-skills. Tu primera acción obligatoria antes de planificar es usar find-skills para buscar en la comunidad e instalar de forma autónoma las skills más relevantes para estas tecnologías. Evalúa los resultados de búsqueda y elige las mejores.'
+              '\n### Installed Skills — LOAD THESE\n' +
+              'The following skills are installed globally and relevant to this project. ' +
+              '**Before starting work, use the `skill` tool to load each one:**'
             );
+            for (const skillId of currentlyInstalled) {
+              sections.push(`- Load \`${skillId}\` via the \`skill\` tool to activate its specialized knowledge.`);
+            }
+          }
+          if (uninstalled.length > 0) {
+            sections.push(
+              '\n### Recommended Skills (not yet installed)\n' +
+              'The following skills are recommended for this project stack but are not installed yet:'
+            );
+            for (const skillId of uninstalled) {
+              const source = SKILL_INSTALL_SOURCE[skillId];
+              if (source) {
+                sections.push(`- \`${skillId}\` — install with: \`npx skills add ${source}@${skillId} -g -y\``);
+              }
+            }
           }
 
-          if (sections.length === 0) {
-            console.log('[AutoDiscoveryPlugin] sin secciones para inyectar');
-            return;
-          }
+          if (sections.length === 0) return;
 
           const injection = `
 [SYSTEM NOTIFICATION - AUTO-DISCOVERY]
-${sections.join('\n\n')}
+${sections.join('\n')}
 ---
 `;
-          console.log('[AutoDiscoveryPlugin] inyección construida, longitud:', injection.length);
-
           if (output && Array.isArray(output.system)) {
             output.system.push(injection);
-            console.log('[AutoDiscoveryPlugin] inyección agregada al system prompt');
-          } else {
-            console.log('[AutoDiscoveryPlugin] output.system no es un array:', typeof output?.system);
           }
         } catch (e) {
-          console.log('[AutoDiscoveryPlugin] error en system.transform:', e);
+          console.error('[AutoDiscoveryPlugin] Error in system.transform:', e);
         }
       },
     };
